@@ -1,0 +1,58 @@
+name: Build luci-app-xray (armsr/armv8)
+
+on:
+  push:
+    branches:
+      - main
+      - master
+  workflow_dispatch: # Mengizinkan build manual dari tab Actions
+
+jobs:
+  build:
+    name: Build IPK Package
+    runs-on: ubuntu-24.04
+    
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+        with:
+          path: luci-app-xray
+          
+      - name: Install Build Dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential ccache ecj fastjar file g++ gawk gettext git java-propose-classpath libelf-dev libncurses5-dev libncursesw5-dev libssl-dev python3 python3-distutils python3-setuptools python3-dev rsync subversion swig time xsltproc zlib1g-dev wget unzip
+          
+      - name: Download & Extract OpenWrt SDK (armsr/armv8)
+        run: |
+          # Mengambil nama file SDK terbaru secara otomatis dari OpenWrt snapshots
+          SDK_FILE=$(curl -s https://downloads.openwrt.org/snapshots/targets/armsr/armv8/sha256sums | grep openwrt-sdk | awk '{print $2}' | sed 's/*//')
+          wget "https://downloads.openwrt.org/snapshots/targets/armsr/armv8/$SDK_FILE" -O sdk.tar.xz
+          tar -xf sdk.tar.xz
+          mv openwrt-sdk-* openwrt-sdk
+          
+      - name: Prepare Feeds & Inject Package
+        run: |
+          cd openwrt-sdk
+          ./scripts/feeds update -a
+          ./scripts/feeds install -a
+          # Memasukkan source code luci-app-xray ke direktori package SDK
+          cp -r ../luci-app-xray package/
+          
+      - name: Compile luci-app-xray
+        run: |
+          cd openwrt-sdk
+          make defconfig
+          make package/luci-app-xray/compile V=s
+          
+      - name: Collect IPK Files
+        run: |
+          mkdir -p artifact
+          # Mencari dan mengumpulkan semua file .ipk yang berhasil di-build
+          find openwrt-sdk/bin/packages/ -name "*luci-app-xray*.ipk" -exec cp {} artifact/ \;
+          
+      - name: Upload IPK Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: luci-app-xray-armsr-armv8
+          path: artifact/*.ipk
